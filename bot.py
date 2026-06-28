@@ -1,26 +1,26 @@
 import os
 import requests
-import google.generativeai as genai
-from datetime import datetime
 import xml.etree.ElementTree as ET
 import random
+from datetime import datetime
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 SEARCH_KEYWORDS = [
     "photovoltaic battery storage optimization",
     "solar energy storage system sizing",
     "renewable energy optimization algorithm",
     "hybrid energy system optimization",
-    "particle swarm optimization energy"
+    "particle swarm optimization energy storage",
+    "PV system sizing genetic algorithm",
+    "battery energy storage renewable Iraq"
 ]
 
 def fetch_from_arxiv():
     keyword = random.choice(SEARCH_KEYWORDS)
-    print(f"Searching arXiv for: {keyword}")
-    
+    print(f"Searching: {keyword}")
     url = "https://export.arxiv.org/api/query"
     params = {
         "search_query": f"all:{keyword}",
@@ -28,18 +28,14 @@ def fetch_from_arxiv():
         "max_results": 10,
         "sortBy": "relevance"
     }
-    
     response = requests.get(url, params=params, timeout=30)
     print(f"arXiv status: {response.status_code}")
-    
     if response.status_code != 200:
         return None
-        
     root = ET.fromstring(response.text)
     ns = {'atom': 'http://www.w3.org/2005/Atom'}
     entries = root.findall('atom:entry', ns)
     print(f"Found {len(entries)} entries")
-    
     papers = []
     for entry in entries:
         title = entry.find('atom:title', ns)
@@ -47,20 +43,16 @@ def fetch_from_arxiv():
         link = entry.find('atom:id', ns)
         authors_els = entry.findall('atom:author', ns)
         published = entry.find('atom:published', ns)
-        
         if title is None or summary is None:
             continue
-            
         abstract = summary.text.strip()
         if len(abstract) < 100:
             continue
-            
         authors = ", ".join([
             a.find('atom:name', ns).text
             for a in authors_els[:3]
             if a.find('atom:name', ns) is not None
         ])
-        
         papers.append({
             "title": title.text.strip().replace('\n', ' '),
             "abstract": abstract,
@@ -69,13 +61,9 @@ def fetch_from_arxiv():
             "url": link.text.strip() if link is not None else "N/A",
             "venue": "arXiv"
         })
-    
     return random.choice(papers) if papers else None
 
-def summarize_with_gemini(paper):
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash")
-
+def summarize_with_groq(paper):
     prompt = f"""أنت مساعد بحثي لطالب ماجستير في هندسة الطاقة الكهربائية متخصص في أنظمة PV-Battery والشبكات الذكية.
 
 لخص هذا البحث بالعربية:
@@ -89,14 +77,34 @@ def summarize_with_gemini(paper):
 
 قدم:
 1. 🎯 الهدف الرئيسي (2-3 جمل)
-2. 🔧 المنهجية (2-3 جمل)  
+2. 🔧 المنهجية (2-3 جمل)
 3. 📊 أهم النتائج (2-3 نقاط)
 4. 💡 أهميته لمجال PV-Battery (جملة أو جملتين)
 
 اكتب بعربية واضحة ومختصرة."""
 
-    response = model.generate_content(prompt)
-    return response.text
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 1000,
+        "temperature": 0.7
+    }
+    response = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers=headers,
+        json=payload,
+        timeout=30
+    )
+    print(f"Groq status: {response.status_code}")
+    if response.status_code == 200:
+        return response.json()["choices"][0]["message"]["content"]
+    else:
+        print(f"Groq error: {response.text}")
+        return None
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -111,17 +119,15 @@ def send_telegram(message):
 
 def main():
     print(f"Bot started at {datetime.now()}")
-    
     paper = fetch_from_arxiv()
-    
     if not paper:
         send_telegram("⚠️ لم يتم العثور على أبحاث اليوم.")
-        print("No paper found")
         return
-
-    print(f"Found paper: {paper['title']}")
-    summary = summarize_with_gemini(paper)
-
+    print(f"Paper: {paper['title']}")
+    summary = summarize_with_groq(paper)
+    if not summary:
+        send_telegram("⚠️ حدث خطأ في التلخيص. سيتم المحاولة مرة أخرى.")
+        return
     message = f"""📚 *بحث جديد في مجالك*
 ━━━━━━━━━━━━━━━━━━━━
 📄 *العنوان:*
