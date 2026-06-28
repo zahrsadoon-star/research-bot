@@ -74,7 +74,7 @@ def fetch_from_arxiv():
 
 def summarize_with_gemini(paper):
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
     prompt = f"""أنت مساعد بحثي لطالب ماجستير في هندسة الطاقة الكهربائية متخصص في أنظمة PV-Battery والشبكات الذكية.
 
